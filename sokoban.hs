@@ -4,6 +4,8 @@ import Test.HUnit
 import Test.QuickCheck
 -- Either define Left and Right too so we hide that types
 import Prelude hiding (Either(..))
+import Data.List (sort)
+import Control.Monad (forM)
 
 data Input
   = Up
@@ -18,16 +20,18 @@ data World = World
   { wWalls
   , wCrates
   , wStorages :: [Coord]
-  , wWorker :: Coord
-  , wSteps :: Int
+  , wWorker   :: Coord
+  , wMax      :: Coord
+  , wSteps    :: Int
   } deriving (Show)
 
 emptyWorld = World
-  { wWalls = []
-  , wCrates = []
+  { wWalls    = []
+  , wCrates   = []
   , wStorages = []
-  , wWorker = (0,0)
-  , wSteps = 0
+  , wWorker   = (0,0)
+  , wMax      = (0,0)
+  , wSteps    = 0
   }
 
 add :: Coord -> Input -> Coord
@@ -38,11 +42,42 @@ add (x,y) input =
     Left  -> (x-1, y)
     Right -> (x+1, y)
 
-loadLevel :: IO World
-loadLevel = emptyWorld
+level = unlines
+  ["#####" -- [((0,0),'#'), ((1,0), '#'), ...]
+  ,"#.o@#"
+  ,"#####"
+  ]
+
+loadLevel :: String -> World
+loadLevel str = foldl consume (emptyWorld{wMax = maxi}) elems
+  -- foldl :: (a -> b -> c) -> a -> [b] -> a
+  where lns    = lines str
+        coords = [[(x,y) | x <- [0..]] | y <- [0..]]
+        elems  = concat $ zipWith zip coords lns
+        maxi   = fst . last $ elems
+        consume wld (c, elt) =
+          case elt of
+            '@' -> wld{wWorker = c}
+            'o' -> wld{wCrates = c:wCrates wld}
+            '#' -> wld{wWalls = c:wWalls wld}
+            '.' -> wld{wStorages = c:wStorages wld}
+            ' ' -> wld
+            otherwise -> error (show elt ++ " not recognized")
 
 displayWorld :: World -> IO ()
-displayWorld = print
+displayWorld w = forM coords $ \c -> do
+  putStr $ case () of () | isCrate w c && isStorage w c  -> '*'
+                         | isWorker w c && isStorage w c -> '+'
+                         | isWall w c    -> '#'
+                         | isWorker w c  -> '@'
+                         | isCrate w c   -> 'o'
+                         | isStorage w c -> '.'
+                         | otherwise     -> ' '
+
+  where (maxX, maxY)  =  wMax world
+        coords        =  [(x,y) | x <- [0..maxX], y <- [0..maxY]]
+        isWorker      =  (==)
+  -- formM :: Monad m => [a] -> (a -> m b) -> m [b]
 
 modifyWorld :: World -> Input -> World
 modifyWorld world input = world
@@ -63,6 +98,9 @@ isWall world coord = elem coord (wWalls world)
 isCrate :: World -> Coord -> Bool
 isCrate world coord = elem coord (wCrates world)
 
+isStorage :: World -> Coord -> Bool
+isStorage world coord = elem coord (wStorages world)
+
 isValid :: World -> Input -> Bool
 isValid world input =
   case () of
@@ -80,17 +118,17 @@ isFinished world =
 
 -- all storage spaces covered by crates
 
-main :: IO()
-main = gameLoop =<< loadLevel
+main :: IO ()
+main = gameLoop $ loadLevel level
 
 gameLoop world = do
+  displayWorld world
   input <- getInput
   let world' = if isValid world input
                   then modifyWorld world input
                   else world
-  displayWorld world'
   if isFinished world'
-    then print "well done!"
+    then displayWorld world' >> print "well done!"
     else gameLoop world'
 
 -- TESTS
